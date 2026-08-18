@@ -170,6 +170,7 @@ class TestDecision:
     ):
         """Manager cannot approve requests from non-direct reports."""
         from app.models.user import User, UserRole
+        from app.models.leave_balance import LeaveBalance
         from app.services.auth import hash_password
         from datetime import datetime, timezone
 

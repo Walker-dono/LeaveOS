@@ -67,29 +67,40 @@ def seed():
     db = SessionLocal()
 
     try:
+        # Check if database is already seeded
+        if db.query(User).filter(User.email == "hradmin@leaveos.demo").first():
+            print("🌱 Database already seeded. Skipping demo seed.")
+            return
+
         print("🌱 Seeding LeaveOS database...")
 
         # ── Departments ────────────────────────────────────────
         departments = []
         for name in DEPARTMENT_NAMES:
-            dept = Department(id=uuid4(), name=name)
-            db.add(dept)
+            dept = db.query(Department).filter(Department.name == name).first()
+            if not dept:
+                dept = Department(id=uuid4(), name=name)
+                db.add(dept)
+                db.flush()
             departments.append(dept)
-        db.flush()
         print(f"   ✓ {len(departments)} departments")
 
         # ── Leave Types ────────────────────────────────────────
         leave_types = []
         for lt_data in LEAVE_TYPES:
-            lt = LeaveType(id=uuid4(), **lt_data)
-            db.add(lt)
+            lt = db.query(LeaveType).filter(LeaveType.name == lt_data["name"]).first()
+            if not lt:
+                lt = LeaveType(id=uuid4(), **lt_data)
+                db.add(lt)
+                db.flush()
             leave_types.append(lt)
-        db.flush()
         print(f"   ✓ {len(leave_types)} leave types")
 
         # ── Holidays ───────────────────────────────────────────
         for h_date, h_name in PUBLIC_HOLIDAYS:
-            db.add(Holiday(id=uuid4(), date=h_date, name=h_name))
+            h = db.query(Holiday).filter(Holiday.date == h_date).first()
+            if not h:
+                db.add(Holiday(id=uuid4(), date=h_date, name=h_name))
         db.flush()
         print(f"   ✓ {len(PUBLIC_HOLIDAYS)} public holidays")
 
@@ -97,18 +108,20 @@ def seed():
         now_str = datetime.now(timezone.utc).isoformat()
 
         # ── HR Admin (demo) ────────────────────────────────────
-        hr_admin = User(
-            id=uuid4(),
-            email="hradmin@leaveos.demo",
-            hashed_password=hashed_pw,
-            full_name="Ada Okonkwo",
-            role=UserRole.HR_ADMIN,
-            department_id=departments[3].id,  # HR department
-            is_active=True,
-            created_at=now_str,
-        )
-        db.add(hr_admin)
-        db.flush()
+        hr_admin = db.query(User).filter(User.email == "hradmin@leaveos.demo").first()
+        if not hr_admin:
+            hr_admin = User(
+                id=uuid4(),
+                email="hradmin@leaveos.demo",
+                hashed_password=hashed_pw,
+                full_name="Ada Okonkwo",
+                role=UserRole.HR_ADMIN,
+                department_id=departments[3].id,  # HR department
+                is_active=True,
+                created_at=now_str,
+            )
+            db.add(hr_admin)
+            db.flush()
         print("   ✓ HR Admin: hradmin@leaveos.demo")
 
         # ── Managers (1 per department) ────────────────────────
@@ -119,20 +132,22 @@ def seed():
                 email = "mgr_engineering@leaveos.demo"
             else:
                 email = f"mgr_{dept.name.lower().replace(' ', '_')}@leaveos.demo"
-            mgr = User(
-                id=uuid4(),
-                email=email,
-                hashed_password=hashed_pw,
-                full_name=fake.name(),
-                role=UserRole.MANAGER,
-                department_id=dept.id,
-                is_active=True,
-                created_at=now_str,
-            )
-            db.add(mgr)
+            mgr = db.query(User).filter(User.email == email).first()
+            if not mgr:
+                mgr = User(
+                    id=uuid4(),
+                    email=email,
+                    hashed_password=hashed_pw,
+                    full_name=fake.name(),
+                    role=UserRole.MANAGER,
+                    department_id=dept.id,
+                    is_active=True,
+                    created_at=now_str,
+                )
+                db.add(mgr)
+                db.flush()
             managers.append(mgr)
             manager_emails.append(email)
-        db.flush()
         print(f"   ✓ {len(managers)} managers")
 
         # ── Employees (8-12 per department) ────────────────────
@@ -148,18 +163,20 @@ def seed():
                     email = fake.unique.email()
                     name = fake.name()
 
-                emp = User(
-                    id=uuid4(),
-                    email=email,
-                    hashed_password=hashed_pw,
-                    full_name=name,
-                    role=UserRole.EMPLOYEE,
-                    department_id=dept.id,
-                    manager_id=managers[dept_idx].id,
-                    is_active=True,
-                    created_at=now_str,
-                )
-                db.add(emp)
+                emp = db.query(User).filter(User.email == email).first()
+                if not emp:
+                    emp = User(
+                        id=uuid4(),
+                        email=email,
+                        hashed_password=hashed_pw,
+                        full_name=name,
+                        role=UserRole.EMPLOYEE,
+                        department_id=dept.id,
+                        manager_id=managers[dept_idx].id,
+                        is_active=True,
+                        created_at=now_str,
+                    )
+                    db.add(emp)
                 employees.append(emp)
                 if email == "emp_demo@leaveos.demo":
                     demo_employee = emp
@@ -173,16 +190,26 @@ def seed():
         balance_count = 0
         for user in all_staff:
             for lt in leave_types:
-                bal = LeaveBalance(
-                    id=uuid4(),
-                    user_id=user.id,
-                    leave_type_id=lt.id,
-                    year=current_year,
-                    allocated_days=lt.default_days_per_year,
-                    used_days=0,
+                bal = (
+                    db.query(LeaveBalance)
+                    .filter(
+                        LeaveBalance.user_id == user.id,
+                        LeaveBalance.leave_type_id == lt.id,
+                        LeaveBalance.year == current_year,
+                    )
+                    .first()
                 )
-                db.add(bal)
-                balance_count += 1
+                if not bal:
+                    bal = LeaveBalance(
+                        id=uuid4(),
+                        user_id=user.id,
+                        leave_type_id=lt.id,
+                        year=current_year,
+                        allocated_days=lt.default_days_per_year,
+                        used_days=0,
+                    )
+                    db.add(bal)
+                    balance_count += 1
         db.flush()
         print(f"   ✓ {balance_count} leave balances")
 

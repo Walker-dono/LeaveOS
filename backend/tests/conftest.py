@@ -19,14 +19,15 @@ from app.models.leave_type import LeaveType
 from app.models.user import User, UserRole
 from app.services.auth import hash_password, create_access_token
 
+# Import all models so they are registered in Base.metadata
+import app.models as _models
 
-# In-memory SQLite for tests — fast and isolated
-TEST_DATABASE_URL = "sqlite:///:memory:"
+# Use file-based SQLite for reliable cross-thread testing in FastAPI
+TEST_DATABASE_URL = "sqlite:///./test.db"
 
 engine = create_engine(
     TEST_DATABASE_URL,
     connect_args={"check_same_thread": False},
-    poolclass=StaticPool,
 )
 TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
