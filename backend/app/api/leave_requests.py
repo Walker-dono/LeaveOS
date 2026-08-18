@@ -5,9 +5,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, get_db, require_manager
+from app.api.deps import get_current_user, get_db, require_manager_or_hr
 from app.models.leave_request import LeaveRequest
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.leave import (
     LeaveDecisionRequest,
     LeaveRequestCreate,
@@ -95,17 +95,14 @@ async def cancel_request(
 
 @router.get("/team", response_model=list[LeaveRequestRead])
 async def get_team_requests(
-    manager: User = Depends(require_manager),
+    manager: User = Depends(require_manager_or_hr),
     db: Session = Depends(get_db),
 ):
-    """Get leave requests from direct reports (Manager only)."""
-    requests = (
-        db.query(LeaveRequest)
-        .join(User, User.id == LeaveRequest.user_id)
-        .filter(User.manager_id == manager.id)
-        .order_by(LeaveRequest.status, LeaveRequest.created_at.desc())
-        .all()
-    )
+    """Get leave requests (direct reports for Manager, company-wide for HR Admin)."""
+    query = db.query(LeaveRequest).join(User, User.id == LeaveRequest.user_id)
+    if manager.role != UserRole.HR_ADMIN:
+        query = query.filter(User.manager_id == manager.id)
+    requests = query.order_by(LeaveRequest.status, LeaveRequest.created_at.desc()).all()
     return [_request_to_read(lr) for lr in requests]
 
 
@@ -113,10 +110,10 @@ async def get_team_requests(
 async def decide_request(
     request_id: UUID,
     body: LeaveDecisionRequest,
-    manager: User = Depends(require_manager),
+    manager: User = Depends(require_manager_or_hr),
     db: Session = Depends(get_db),
 ):
-    """Approve or reject a leave request (Manager, own direct reports only)."""
+    """Approve or reject a leave request (Manager for direct reports, HR Admin for company)."""
     try:
         lr = decide_leave_request(
             db=db,

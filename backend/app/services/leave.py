@@ -62,22 +62,52 @@ def submit_leave_request(
     if end_date < start_date:
         raise ValueError("End date cannot be before start date.")
 
-    # Check balance
     working_days = count_working_days(start_date, end_date, db)
-    balance = (
-        db.query(LeaveBalance)
+    if working_days == 0:
+        raise ValueError("Selected range does not contain any working days (Monday–Friday).")
+
+    # Check for overlapping active requests
+    overlapping = (
+        db.query(LeaveRequest)
         .filter(
-            LeaveBalance.user_id == user.id,
-            LeaveBalance.leave_type_id == leave_type_id,
-            LeaveBalance.year == start_date.year,
+            LeaveRequest.user_id == user.id,
+            LeaveRequest.status.in_([LeaveStatus.PENDING, LeaveStatus.APPROVED]),
+            LeaveRequest.start_date <= end_date,
+            LeaveRequest.end_date >= start_date,
         )
         .first()
     )
-    if balance and balance.remaining_days < working_days:
+    if overlapping:
         raise ValueError(
-            f"Insufficient leave balance. Requested {working_days} days, "
-            f"but only {balance.remaining_days} remaining."
+            f"You already have an active ({overlapping.status.value.lower()}) leave request "
+            f"from {overlapping.start_date} to {overlapping.end_date} overlapping this period."
         )
+
+    # Check balance per calendar year in range
+    for y in range(start_date.year, end_date.year + 1):
+        y_start = max(start_date, date(y, 1, 1))
+        y_end = min(end_date, date(y, 12, 31))
+        y_days = count_working_days(y_start, y_end, db)
+        if y_days <= 0:
+            continue
+
+        balance = (
+            db.query(LeaveBalance)
+            .filter(
+                LeaveBalance.user_id == user.id,
+                LeaveBalance.leave_type_id == leave_type_id,
+                LeaveBalance.year == y,
+            )
+            .first()
+        )
+        allocated = balance.allocated_days if balance else leave_type.default_days_per_year
+        used = balance.used_days if balance else 0
+        remaining = allocated - used
+        if remaining < y_days:
+            raise ValueError(
+                f"Insufficient leave balance for {y}. Requested {y_days} days, "
+                f"but only {remaining} remaining."
+            )
 
     request = LeaveRequest(
         user_id=user.id,
@@ -125,12 +155,12 @@ def decide_leave_request(
     action: str,
     comment: str = "",
 ) -> LeaveRequest:
-    """Approve or reject a leave request (manager action).
+    """Approve or reject a leave request (manager or HR Admin action).
 
     Business rules enforced:
-    - Manager cannot approve/reject their own request
-    - Manager can only act on direct reports (user.manager_id == manager.id)
-    - Approval atomically increments used_days in a transaction
+    - Approver cannot approve/reject their own request
+    - Manager can act on direct reports; HR Admin can act across the organization
+    - Approval atomically increments used_days in a transaction per calendar year
     """
     leave_request = db.query(LeaveRequest).filter(LeaveRequest.id == request_id).first()
     if not leave_request:
@@ -140,9 +170,11 @@ def decide_leave_request(
     if leave_request.user_id == manager.id:
         raise ValueError("Cannot approve/reject your own leave request.")
 
-    # Rule: manager can only act on direct reports
+    # Rule: manager can only act on direct reports, unless HR Admin
     requestor = db.query(User).filter(User.id == leave_request.user_id).first()
-    if not requestor or requestor.manager_id != manager.id:
+    is_hr = manager.role == UserRole.HR_ADMIN
+    is_direct_manager = requestor is not None and requestor.manager_id == manager.id
+    if not (is_hr or is_direct_manager):
         raise ValueError("You can only act on requests from your direct reports.")
 
     if leave_request.status != LeaveStatus.PENDING:
@@ -152,37 +184,40 @@ def decide_leave_request(
     if action == "approve":
         leave_request.status = LeaveStatus.APPROVED
 
-        # Atomically update balance
-        balance = (
-            db.query(LeaveBalance)
-            .filter(
-                LeaveBalance.user_id == leave_request.user_id,
-                LeaveBalance.leave_type_id == leave_request.leave_type_id,
-                LeaveBalance.year == leave_request.start_date.year,
-            )
-            .first()
-        )
-        if not balance:
-            # Auto-create balance if not exists (matching Django get_or_create)
-            leave_type = (
-                db.query(LeaveType)
-                .filter(LeaveType.id == leave_request.leave_type_id)
+        # Atomically update balance per calendar year in range
+        for y in range(leave_request.start_date.year, leave_request.end_date.year + 1):
+            y_start = max(leave_request.start_date, date(y, 1, 1))
+            y_end = min(leave_request.end_date, date(y, 12, 31))
+            y_days = count_working_days(y_start, y_end, db)
+            if y_days <= 0:
+                continue
+
+            balance = (
+                db.query(LeaveBalance)
+                .filter(
+                    LeaveBalance.user_id == leave_request.user_id,
+                    LeaveBalance.leave_type_id == leave_request.leave_type_id,
+                    LeaveBalance.year == y,
+                )
                 .first()
             )
-            balance = LeaveBalance(
-                user_id=leave_request.user_id,
-                leave_type_id=leave_request.leave_type_id,
-                year=leave_request.start_date.year,
-                allocated_days=leave_type.default_days_per_year if leave_type else 20,
-                used_days=0,
-            )
-            db.add(balance)
-            db.flush()
+            if not balance:
+                leave_type = (
+                    db.query(LeaveType)
+                    .filter(LeaveType.id == leave_request.leave_type_id)
+                    .first()
+                )
+                balance = LeaveBalance(
+                    user_id=leave_request.user_id,
+                    leave_type_id=leave_request.leave_type_id,
+                    year=y,
+                    allocated_days=leave_type.default_days_per_year if leave_type else 20,
+                    used_days=0,
+                )
+                db.add(balance)
+                db.flush()
 
-        working_days = count_working_days(
-            leave_request.start_date, leave_request.end_date, db
-        )
-        balance.used_days += working_days
+            balance.used_days += y_days
 
     elif action == "reject":
         leave_request.status = LeaveStatus.REJECTED

@@ -261,3 +261,90 @@ class TestGetRequests:
         resp = client.get("/api/v1/leave-requests/team", headers=auth_header(manager))
         assert resp.status_code == 200
         assert len(resp.json()) >= 1
+
+
+class TestEdgeCasesAndHardening:
+    """Additional integrity and edge-case tests."""
+
+    def test_overlapping_request_rejected(self, client, employee, leave_type, employee_balance):
+        """Cannot submit overlapping leave requests."""
+        start = date.today() + timedelta(days=14)
+        end = start + timedelta(days=4)
+
+        # First request
+        resp1 = client.post(
+            "/api/v1/leave-requests",
+            json={
+                "leave_type_id": str(leave_type.id),
+                "start_date": start.isoformat(),
+                "end_date": end.isoformat(),
+                "reason": "First trip",
+            },
+            headers=auth_header(employee),
+        )
+        assert resp1.status_code == 201
+
+        # Overlapping request
+        overlap_start = start + timedelta(days=2)
+        overlap_end = end + timedelta(days=2)
+        resp2 = client.post(
+            "/api/v1/leave-requests",
+            json={
+                "leave_type_id": str(leave_type.id),
+                "start_date": overlap_start.isoformat(),
+                "end_date": overlap_end.isoformat(),
+                "reason": "Overlapping trip",
+            },
+            headers=auth_header(employee),
+        )
+        assert resp2.status_code == 400
+        assert "overlapping" in resp2.json()["detail"].lower()
+
+    def test_hr_admin_can_approve_manager_request(
+        self, client, db, manager, hr_admin, leave_type
+    ):
+        """HR Admin can approve requests from department managers."""
+        from app.models.leave_balance import LeaveBalance
+
+        bal = LeaveBalance(
+            id=uuid.uuid4(),
+            user_id=manager.id,
+            leave_type_id=leave_type.id,
+            year=date.today().year,
+            allocated_days=25,
+            used_days=0,
+        )
+        db.add(bal)
+        db.commit()
+
+        start = date.today() + timedelta(days=21)
+        end = start + timedelta(days=2)
+        create_resp = client.post(
+            "/api/v1/leave-requests",
+            json={
+                "leave_type_id": str(leave_type.id),
+                "start_date": start.isoformat(),
+                "end_date": end.isoformat(),
+                "reason": "Manager conference",
+            },
+            headers=auth_header(manager),
+        )
+        assert create_resp.status_code == 201
+        req_id = create_resp.json()["id"]
+
+        # HR Admin approves
+        decide_resp = client.patch(
+            f"/api/v1/leave-requests/{req_id}/decision",
+            json={"action": "approve", "comment": "Approved by HR"},
+            headers=auth_header(hr_admin),
+        )
+        assert decide_resp.status_code == 200
+        assert decide_resp.json()["status"] == "APPROVED"
+
+    def test_auto_provision_balances_on_me(self, client, employee, leave_type):
+        """Fetching /leave-balances/me provisions balances if none exist."""
+        resp = client.get("/api/v1/leave-balances/me", headers=auth_header(employee))
+        assert resp.status_code == 200
+        balances = resp.json()
+        assert len(balances) >= 1
+        assert any(b["leave_type_id"] == str(leave_type.id) for b in balances)

@@ -19,6 +19,15 @@ class TestLogin:
         assert "refresh_token" in data
         assert data["token_type"] == "bearer"
 
+    def test_login_case_insensitive(self, client, employee):
+        """Login is case-insensitive for email."""
+        resp = client.post(
+            "/api/v1/auth/login",
+            json={"email": "EMPLOYEE@TEST.COM", "password": "password123"},
+        )
+        assert resp.status_code == 200
+        assert "access_token" in resp.json()
+
     def test_login_form_valid(self, client, employee):
         """Login with OAuth2 form data (Swagger /docs) returns tokens."""
         resp = client.post(

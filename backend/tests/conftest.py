@@ -22,8 +22,8 @@ from app.services.auth import hash_password, create_access_token
 # Import all models so they are registered in Base.metadata
 import app.models as _models
 
-# Use file-based SQLite for reliable cross-thread testing in FastAPI
-TEST_DATABASE_URL = "sqlite:///./test.db"
+# Use fast local /tmp/test.db inside Docker container (avoids Windows 9p file lock issues)
+TEST_DATABASE_URL = "sqlite:////tmp/test.db"
 
 engine = create_engine(
     TEST_DATABASE_URL,
@@ -70,27 +70,31 @@ def client():
 
 @pytest.fixture
 def department(db):
-    """Create a test department."""
-    dept = Department(id=uuid.uuid4(), name="Engineering")
-    db.add(dept)
-    db.commit()
-    db.refresh(dept)
+    """Create a test department or return existing."""
+    dept = db.query(Department).filter(Department.name == "Engineering").first()
+    if not dept:
+        dept = Department(id=uuid.uuid4(), name="Engineering")
+        db.add(dept)
+        db.commit()
+        db.refresh(dept)
     return dept
 
 
 @pytest.fixture
 def leave_type(db):
-    """Create a test leave type."""
-    lt = LeaveType(
-        id=uuid.uuid4(),
-        name="Annual Leave",
-        default_days_per_year=25,
-        requires_approval=True,
-        is_paid=True,
-    )
-    db.add(lt)
-    db.commit()
-    db.refresh(lt)
+    """Create a test leave type or return existing."""
+    lt = db.query(LeaveType).filter(LeaveType.name == "Annual Leave").first()
+    if not lt:
+        lt = LeaveType(
+            id=uuid.uuid4(),
+            name="Annual Leave",
+            default_days_per_year=25,
+            requires_approval=True,
+            is_paid=True,
+        )
+        db.add(lt)
+        db.commit()
+        db.refresh(lt)
     return lt
 
 

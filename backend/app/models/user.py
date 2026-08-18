@@ -2,6 +2,7 @@
 
 import enum
 import uuid
+from datetime import datetime, timezone
 
 from sqlalchemy import Boolean, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -39,7 +40,7 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[str] = mapped_column(
         String(50), nullable=False,
-        default="",  # Will be set properly via server_default or app logic
+        default=lambda: datetime.now(timezone.utc).isoformat(),
     )
 
     # Relationships

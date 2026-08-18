@@ -36,11 +36,13 @@ export const NewRequestModal: React.FC<NewRequestModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Calculate working days (Mon-Fri) between start and end
+  // Calculate working days (Mon-Fri) between start and end safely (timezone-independent)
   const calculateWorkingDays = (startStr: string, endStr: string): number => {
     if (!startStr || !endStr) return 0;
-    const start = new Date(startStr);
-    const end = new Date(endStr);
+    const [sY, sM, sD] = startStr.split('-').map(Number);
+    const [eY, eM, eD] = endStr.split('-').map(Number);
+    const start = new Date(sY, sM - 1, sD);
+    const end = new Date(eY, eM - 1, eD);
     if (end < start) return 0;
 
     let count = 0;
@@ -53,6 +55,13 @@ export const NewRequestModal: React.FC<NewRequestModalProps> = ({
       cur.setDate(cur.getDate() + 1);
     }
     return count;
+  };
+
+  const handleStartDateChange = (val: string) => {
+    setStartDate(val);
+    if (endDate && val > endDate) {
+      setEndDate(val);
+    }
   };
 
   const requestedWorkingDays = calculateWorkingDays(startDate, endDate);
@@ -159,7 +168,7 @@ export const NewRequestModal: React.FC<NewRequestModalProps> = ({
               <input
                 type="date"
                 value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
+                onChange={(e) => handleStartDateChange(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-brand-500 transition-colors"
               />
             </div>

@@ -1,6 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
@@ -23,7 +24,8 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 def _authenticate_user(db: Session, email: str, password: str) -> User:
     """Validate credentials and return user or raise 401."""
-    user = db.query(User).filter(User.email == email).first()
+    clean_email = email.strip().lower()
+    user = db.query(User).filter(func.lower(User.email) == clean_email).first()
     if not user or not verify_password(password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

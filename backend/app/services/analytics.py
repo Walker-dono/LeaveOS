@@ -25,26 +25,6 @@ def get_summary(db: Session) -> dict:
     ]
 
     # By department
-    dept_rows = (
-        db.query(
-            func.coalesce(
-                # Join through user to department
-                func.min(  # hack: aggregate for group_by
-                    db.query(User.department_id)
-                    .filter(User.id == LeaveRequest.user_id)
-                    .correlate(LeaveRequest)
-                    .scalar_subquery()
-                ),
-                None,
-            ),
-            func.count(LeaveRequest.id),
-        )
-        .join(User, User.id == LeaveRequest.user_id)
-        .group_by(User.department_id)
-        .all()
-    )
-
-    # Simpler approach: join through user
     from app.models.department import Department
 
     dept_rows = (

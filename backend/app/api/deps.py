@@ -78,3 +78,16 @@ def require_hr_admin(
             detail="HR Admin access required.",
         )
     return current_user
+
+
+def require_manager_or_hr(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """Dependency that requires the current user to be a Manager or HR Admin."""
+    if current_user.role not in (UserRole.MANAGER, UserRole.HR_ADMIN):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Manager or HR Admin access required.",
+        )
+    return current_user
+
