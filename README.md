@@ -51,9 +51,9 @@ The database comes pre-seeded with accounts for all three roles (password for al
 
 | Role | Email | Purpose |
 |---|---|---|
-| **HR Admin** | `sarah.hr@leaveos.local` | Organization metrics & ML forecasting |
-| **Manager** | `alex.manager@leaveos.local` | Direct reports approval queue |
-| **Employee** | `john.dev@leaveos.local` | Requesting time off & balance tracking |
+| **HR Admin** | `hradmin@leaveos.demo` | Organization metrics & ML forecasting |
+| **Manager** | `mgr_engineering@leaveos.demo` | Direct reports approval queue |
+| **Employee** | `emp_demo@leaveos.demo` | Requesting time off & balance tracking |
 
 ---
 
